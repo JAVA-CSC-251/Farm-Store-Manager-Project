@@ -107,6 +107,20 @@ DataHandler.java – (Optional) Manages file reading/writing
 
 All classes demonstrate encapsulation, modularization, and reusability.
 
+## 👥 Contributors
+
+| Name | GitHub Username | Role |
+|------|------------------|------|
+| Joey Ackerman-Lowery | [@JoeyAckermanLowery](https://github.com/JoeyAckermanLowery) | Project Lead / Code Integration |
+| Haylee Sophia | [@HayleeSophia77](https://github.com/HayleeSophia77) | UI Design / Inventory Features |
+| Carter J. | [@carterj7383](https://github.com/carterj7383) | Sales Logic / Data Handling |
+| Brinson A. | [@Brinsona5662](https://github.com/Brinsona5662) | Testing / Documentation |
+
+> **Course:** Java CSC-251 – Advanced Java Programming  
+> **Instructor:** David Teter  
+> **Term:** Fall 2025
+
+
 ## 🧾 Deliverables
 
 Java source files (.java)
