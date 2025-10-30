@@ -111,7 +111,7 @@ All classes demonstrate encapsulation, modularization, and reusability.
 
 | Name | GitHub Username | Role |
 |------|------------------|------|
-| Joey Ackerman-Lowery | [@JoeyAckermanLowery](https://github.com/JoeyAckermanLowery) | Project Lead / Code Integration |
+| Joey Ackerman-Lowery | [@ackermaj5301](https://github.com/ackermaj5301) | Project Lead / Code Integration |
 | Haylee Sophia | [@HayleeSophia77](https://github.com/HayleeSophia77) | UI Design / Inventory Features |
 | Carter J. | [@carterj7383](https://github.com/carterj7383) | Sales Logic / Data Handling |
 | Brinson A. | [@Brinsona5662](https://github.com/Brinsona5662) | Testing / Documentation |
@@ -119,6 +119,7 @@ All classes demonstrate encapsulation, modularization, and reusability.
 > **Course:** Java CSC-251 – Advanced Java Programming  
 > **Instructor:** David Teter  
 > **Term:** Fall 2025
+
 
 
 ## 🧾 Deliverables
