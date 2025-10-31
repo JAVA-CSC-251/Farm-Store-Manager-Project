@@ -8,6 +8,7 @@ import java.awt.FlowLayout;
 import java.io.*;
 import java.nio.file.*;
 import java.text.NumberFormat;
+import java.time.Duration;   // Haylee
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -38,6 +39,8 @@ public class FarmStoreManager extends JFrame {
         tabs.addTab("Store", new StorePanel());
         tabs.addTab("Services", new ServicesPanel());
         tabs.addTab("Animals", new AnimalsPanel());
+        // Haylee - Added Employees tabs
+        tabs.addTab("Employees", new EmployeesPanel());
         tabs.addTab("Reports", new ReportsPanel());
         add(tabs, BorderLayout.CENTER);
     }
@@ -50,6 +53,9 @@ public class FarmStoreManager extends JFrame {
 
     static String money(double d) { return CURRENCY.format(d); }
     static String id(String prefix) { return prefix + "-" + UUID.randomUUID().toString().substring(0,8); }
+
+    // Haylee - Yes/No helper
+    private static String yn(boolean b) { return b ? "Yes" : "No"; }
 
     static class CsvFiles {
         static Path p(String name){ return Path.of(DATA_DIR, name); }
@@ -95,6 +101,17 @@ public class FarmStoreManager extends JFrame {
 
             ensureHeaderOnly(p("appointments.csv"), "id,customerId,animalId,serviceId,start,end,status,paidAmount");
             ensureHeaderOnly(p("sales.csv"), "id,dateTime,customerId,subTotal,tax,total,paidCash,paidCard,linesJson");
+
+            // Haylee - Employees and Timeclock CSVs
+            ensureWithSeed(
+                p("employees.csv"),
+                "id,name,hourlyRate,active",
+                List.of(
+                    new String[]{"E1","Alice Johnson","15.50","true"},
+                    new String[]{"E2","Marco Diaz","14.00","true"}
+                )
+            );
+            ensureHeaderOnly(p("timeclock.csv"), "id,employeeId,clockIn,clockOut,hours,pay");
         }
 
         static void ensureWithSeed(Path path, String header, List<String[]> seedRows) {
@@ -224,6 +241,33 @@ public class FarmStoreManager extends JFrame {
             SaleLine s = new SaleLine();
             s.itemType="ANIMAL"; s.refId=a.id; s.description=a.species+" ("+a.breed+")"; s.qty=1; s.unitPrice=a.price; s.taxable=false; s.lineTotal=a.price;
             return s;
+        }
+    }
+
+    // ===================== Employee and TimeEntry Models =====================
+    // Haylee - Employee and TimeEntry classes
+    static class Employee {
+        String id, name;
+        double hourlyRate;
+        boolean active;
+        Employee(String id, String name, double hourlyRate, boolean active) {
+            this.id = id == null ? id("E") : id;
+            this.name = name;
+            this.hourlyRate = hourlyRate;
+            this.active = active;
+        }
+    }
+    static class TimeEntry {
+        String id, employeeId;
+        LocalDateTime clockIn, clockOut;
+        double hours, pay;
+        TimeEntry(String id, String employeeId, LocalDateTime in, LocalDateTime out, double hours, double pay) {
+            this.id = id == null ? id("TC") : id;
+            this.employeeId = employeeId;
+            this.clockIn = in;
+            this.clockOut = out;
+            this.hours = hours;
+            this.pay = pay;
         }
     }
 
@@ -370,6 +414,66 @@ public class FarmStoreManager extends JFrame {
         static String escape(String s){ if (s==null) return ""; return s.replace("|","/").replace(";","/"); }
     }
 
+    // ===================== Employee and TimeEntry Repos =====================
+    // Haylee - EmployeeRepo and TimeRepo classes
+    static class EmployeeRepo {
+        static List<Employee> all() {
+            List<Employee> list = new ArrayList<>();
+            for (String[] r : CsvFiles.read(CsvFiles.p("employees.csv"))) {
+                if (r.length < 4) continue;
+                list.add(new Employee(r[0], r[1], d(r[2]), b(r[3])));
+            }
+            return list;
+        }
+        static void saveAll(List<Employee> items){
+            List<String[]> rows = new ArrayList<>();
+            for (Employee e : items){
+                rows.add(new String[]{e.id, e.name, Double.toString(e.hourlyRate), Boolean.toString(e.active)});
+            }
+            CsvFiles.write(CsvFiles.p("employees.csv"), "id,name,hourlyRate,active", rows);
+        }
+        static Optional<Employee> byId(String id){
+            return all().stream().filter(e->e.id.equals(id)).findFirst();
+        }
+    }
+
+    static class TimeRepo {
+        static List<TimeEntry> all() {
+            List<TimeEntry> list = new ArrayList<>();
+            for (String[] r : CsvFiles.read(CsvFiles.p("timeclock.csv"))) {
+                if (r.length < 6) continue;
+                LocalDateTime cin = r[2].isBlank() ? null : LocalDateTime.parse(r[2]);
+                LocalDateTime cout = r[3].isBlank() ? null : LocalDateTime.parse(r[3]);
+                list.add(new TimeEntry(r[0], r[1], cin, cout, d(r[4]), d(r[5])));
+            }
+            return list;
+        }
+        static void saveAll(List<TimeEntry> items){
+            List<String[]> rows = new ArrayList<>();
+            for (TimeEntry t : items){
+                rows.add(new String[]{
+                    t.id, t.employeeId, 
+                    t.clockIn == null ? "" : t.clockIn.toString(), 
+                    t.clockOut == null ? "" : t.clockOut.toString(), 
+                    Double.toString(t.hours), 
+                    Double.toString(t.pay)
+                });
+            }
+            CsvFiles.write(CsvFiles.p("timeclock.csv"), "id,employeeId,clockIn,clockOut,hours,pay", rows);
+        }
+        static Optional<TimeEntry> openShiftFor(String empId){
+            return all().stream().filter(t -> empId.equals(t.employeeId) && t.clockOut==null).findFirst();
+        }
+
+        static double sumHours(String empId){
+            return all().stream().filter(t -> empId.equals(t.employeeId)).mapToDouble(t -> t.hours).sum();
+        }
+
+        static double sumPay(String empId){
+            return all().stream().filter(t -> empId.equals(t.employeeId)).mapToDouble(t -> t.pay).sum();
+        }
+    }
+
     // parsing helpers
     static int i(String s){ try { return Integer.parseInt(s.trim()); } catch(Exception e){ return 0; } }
     static double d(String s){ try { return Double.parseDouble(s.trim()); } catch(Exception e){ return 0.0; } }
@@ -416,7 +520,8 @@ public class FarmStoreManager extends JFrame {
         void reload(){
             model.setRowCount(0);
             for (InventoryItem it : InventoryRepo.all()){
-                model.addRow(new Object[]{it.sku,it.name,it.category,money(it.unitPrice),it.qtyOnHand,it.taxable});
+                // Haylee - Changed to show Yes/No instead of True/False
+                model.addRow(new Object[]{it.sku,it.name,it.category,money(it.unitPrice),it.qtyOnHand,yn(it.taxable)});
             }
         }
 
@@ -615,7 +720,8 @@ public class FarmStoreManager extends JFrame {
         void reload(){
             model.setRowCount(0);
             for (Animal a : AnimalRepo.all()){
-                model.addRow(new Object[]{a.id,a.species,a.breed,a.sex,a.ageMonths,money(a.price),a.onHold,a.supplierName,a.sold});
+                // Haylee - Changed to show Yes/No instead of True/False for sold column
+                model.addRow(new Object[]{a.id,a.species,a.breed,a.sex,a.ageMonths,money(a.price),yn(a.onHold),a.supplierName,yn(a.sold)});
             }
         }
 
@@ -673,6 +779,136 @@ public class FarmStoreManager extends JFrame {
         }
     }
 
+    // ---- Employees and Time Clock ----
+    // Haylee - EmployeesPanel class
+    class EmployeesPanel extends JPanel {
+        DefaultTableModel model = new DefaultTableModel(new Object[]{"ID","Name","Hourly Rate","Active","Clocked In"},0){
+            public boolean isCellEditable(int r,int c){return false;}
+        };
+        JTable table = new JTable(model);
+
+        EmployeesPanel() {
+            setLayout(new BorderLayout());
+            add(new JScrollPane(table), BorderLayout.CENTER);
+            JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JButton add = new JButton("Add Employee");
+            JButton edit = new JButton("Edit Employee");
+            JButton toggle = new JButton("Toggle Active");
+            JButton clockIn = new JButton("Clock In"); 
+            JButton clockOut = new JButton("Clock Out"); 
+            actions.add(add); actions.add(edit); actions.add(toggle); actions.add(clockIn); actions.add(clockOut);
+            add(actions, BorderLayout.NORTH);
+
+            add.addActionListener(e -> onAdd());
+            edit.addActionListener(e -> onEdit());
+            toggle.addActionListener(e -> onToggleActive());
+            clockIn.addActionListener(e -> onClockIn());
+            clockOut.addActionListener(e -> onClockOut());
+
+            reload();
+        }
+
+        void reload() {
+            model.setRowCount(0);
+            List<Employee> emps = EmployeeRepo.all();
+            for (Employee emp : emps) {
+                boolean open = TimeRepo.openShiftFor(emp.id).isPresent();
+                model.addRow(new Object[]{emp.id, emp.name, money(emp.hourlyRate), yn(emp.active), yn(open)});
+            }
+        }
+
+        Optional<Employee> selected() {
+            int r = table.getSelectedRow(); if (r < 0) return Optional.empty();
+            String empId = (String) model.getValueAt(r, 0);
+            return EmployeeRepo.byId(empId);
+        }
+
+        void onAdd() {
+            String name = JOptionPane.showInputDialog(this, "Employee Name:"); if (name == null || name.isBlank()) return;
+            double rate = d(JOptionPane.showInputDialog(this, "Hourly Rate:"));
+            List<Employee> all = EmployeeRepo.all();
+            all.add(new Employee(null, name, rate, true));
+            EmployeeRepo.saveAll(all);
+            reload();
+        }
+
+        void onEdit() {
+            Optional<Employee> opt = selected(); if (opt.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Select an employee");
+                return;
+            }
+            Employee e = opt.get();
+            String name = JOptionPane.showInputDialog(this, " Name:", e.name); if (name == null) return;
+            double rate = d(JOptionPane.showInputDialog(this, "Hourly Rate:", Double.toString(e.hourlyRate)));
+            List<Employee> all = EmployeeRepo.all();
+            for (Employee x : all) if (x.id.equals(e.id)) { x.name = name; x.hourlyRate = rate; }
+            EmployeeRepo.saveAll(all);
+            reload();
+        }
+
+        void onToggleActive() {
+            Optional<Employee> opt = selected(); if (opt.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Select an employee");
+                return;
+            }
+            Employee e = opt.get();
+            List<Employee> all = EmployeeRepo.all();
+            for (Employee x : all) if (x.id.equals(e.id)) x.active = !x.active;
+            EmployeeRepo.saveAll(all);
+            reload();
+        }
+
+        void onClockIn() {
+            Optional<Employee> opt = selected(); if (opt.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Select an employee");
+                return;
+            }
+            Employee e = opt.get();
+            if (!e.active) {
+                JOptionPane.showMessageDialog(this, "Employee is inactive.");
+                return;
+            }
+            if (TimeRepo.openShiftFor(e.id).isPresent()) {
+                JOptionPane.showMessageDialog(this, "Employee already clocked in.");
+                return;
+            }
+            List<TimeEntry> ts = TimeRepo.all();
+            ts.add(new TimeEntry(null, e.id, LocalDateTime.now(), null, 0.0, 0.0));
+            TimeRepo.saveAll(ts);
+            JOptionPane.showMessageDialog(this, e.name + "clocked in.");
+            reload();
+        }
+
+        void onClockOut() {
+            Optional<Employee> opt = selected(); if (opt.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Select an employee");
+                return;
+            }
+            Employee e = opt.get();
+            Optional<TimeEntry> openOpt = TimeRepo.openShiftFor(e.id);
+            if (openOpt.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Employee is not clocked in.");
+                return;
+            }
+            TimeEntry open = openOpt.get();
+            LocalDateTime out = LocalDateTime.now();
+            double hours = Math.max(0.0, Duration.between(open.clockIn, out).toMinutes() / 60.0);
+            double pay = hours * e.hourlyRate;
+
+            List<TimeEntry> all = TimeRepo.all();
+            for (TimeEntry t : all) {
+                if (t.id.equals(open.id)) {
+                    t.clockOut = out;
+                    t.hours = hours;
+                    t.pay = pay;
+                }
+            }
+            TimeRepo.saveAll(all);
+            JOptionPane.showMessageDialog(this, String.format("%s clocked out. Hours: %.2f Pay: %s", e.name, hours, money(pay)));
+            reload();
+        }
+    }
+
     // ---- Reports ----
     class ReportsPanel extends JPanel {
         DefaultTableModel model = new DefaultTableModel(new Object[]{"Metric","Value"},0){
@@ -693,6 +929,12 @@ public class FarmStoreManager extends JFrame {
             double total = sales.stream().mapToDouble(s->s.total).sum();
             model.addRow(new Object[]{"Lifetime Sales", money(total)});
             model.addRow(new Object[]{"Receipts", sales.size()});
+
+            // Haylee - Employee hours and pay report
+            double empHours = EmployeeRepo.all().stream().mapToDouble(e->TimeRepo.sumHours(e.id)).sum();
+            double empPay = EmployeeRepo.all().stream().mapToDouble(e->TimeRepo.sumPay(e.id)).sum();
+            model.addRow(new Object[]{"Total Employee Hours", String.format("%.2f", empHours)});
+            model.addRow(new Object[]{"Total Employee Pay", money(empPay)});
         }
     }
 }
