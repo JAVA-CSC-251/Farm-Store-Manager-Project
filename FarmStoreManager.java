@@ -1,15 +1,13 @@
-import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
-
-// ✅ Use only the AWT classes we need (avoids clash with java.util.List)
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
-
 import java.io.*;
 import java.nio.file.*;
 import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.util.*;
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
 
 /**
  * FarmStoreManager — single-file Java app (Swing)
@@ -33,6 +31,14 @@ public class FarmStoreManager extends JFrame {
 
         // Ensure data dir and headers + seed rows exist
         CsvFiles.ensureAllWithSeed();
+        LifetimeTransactionRepo.loadIntoLists();
+
+        List<InventoryItem> all = InventoryRepo.all();
+        for (InventoryItem it : InventoryRepo.all()){
+            int qty = i(JOptionPane.showInputDialog(null,"Today's Stock of " + it.name, Integer.toString(it.qtyOnHand)));
+            for (InventoryItem x : all) if (x.id.equals(it.id)){ x.qtyOnHand=qty;}
+        }            
+        InventoryRepo.saveAll(all);
 
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Store", new StorePanel());
@@ -44,13 +50,23 @@ public class FarmStoreManager extends JFrame {
 
     // ===================== Data & Utils =====================
 
+    private static ArrayList<String> dailyDates = new ArrayList<>();
+    private static ArrayList<String> dailyReceipts = new ArrayList<>();
+    private static ArrayList<String> dailyItems = new ArrayList<>();
+    private static ArrayList<String> dailyPrices = new ArrayList<>();
+    
+    private static ArrayList<String> lifetimeDates = new ArrayList<>();
+    private static ArrayList<String> lifetimeReceipts = new ArrayList<>();
+    private static ArrayList<String> lifetimeItems = new ArrayList<>();
+    private static ArrayList<String> lifetimePrices = new ArrayList<>();
+    
     static final String DATA_DIR = "data";  // one folder, auto-created
     static final double TAX_RATE = 0.07;
     static final NumberFormat CURRENCY = NumberFormat.getCurrencyInstance();
 
     static String money(double d) { return CURRENCY.format(d); }
     static String id(String prefix) { return prefix + "-" + UUID.randomUUID().toString().substring(0,8); }
-
+    
     static class CsvFiles {
         static Path p(String name){ return Path.of(DATA_DIR, name); }
 
@@ -95,6 +111,7 @@ public class FarmStoreManager extends JFrame {
 
             ensureHeaderOnly(p("appointments.csv"), "id,customerId,animalId,serviceId,start,end,status,paidAmount");
             ensureHeaderOnly(p("sales.csv"), "id,dateTime,customerId,subTotal,tax,total,paidCash,paidCard,linesJson");
+            ensureHeaderOnly(p("lifetime_transactions.csv"), "date,receiptId,items,price");
         }
 
         static void ensureWithSeed(Path path, String header, List<String[]> seedRows) {
@@ -334,6 +351,7 @@ public class FarmStoreManager extends JFrame {
             }
             return list;
         }
+
         static void saveAll(List<Sale> items){
             List<String[]> rows = new ArrayList<>();
             for (Sale s: items){
@@ -369,6 +387,38 @@ public class FarmStoreManager extends JFrame {
         }
         static String escape(String s){ if (s==null) return ""; return s.replace("|","/").replace(";","/"); }
     }
+
+    static class LifetimeTransactionRepo {
+            static void loadIntoLists() {
+                lifetimeDates.clear();
+                lifetimeReceipts.clear();
+                lifetimeItems.clear();
+                lifetimePrices.clear();
+                
+                for (String[] r : CsvFiles.read(CsvFiles.p("lifetime_transactions.csv"))) {
+                    if (r.length < 4) continue;
+                    lifetimeDates.add(r[0]);
+                    lifetimeReceipts.add(r[1]);
+                    lifetimeItems.add(r[2]);
+                    lifetimePrices.add(r[3]);
+                }
+            }
+            
+            static void saveFromLists() {
+                List<String[]> rows = new ArrayList<>();
+                for (int i = 0; i < lifetimeDates.size(); i++) {
+                    rows.add(new String[]{
+                        lifetimeDates.get(i),
+                        lifetimeReceipts.get(i),
+                        lifetimeItems.get(i),
+                        lifetimePrices.get(i)
+                    });
+                }
+                CsvFiles.write(CsvFiles.p("lifetime_transactions.csv"), 
+                            "date,receiptId,items,price", rows);
+            }
+        }
+
 
     // parsing helpers
     static int i(String s){ try { return Integer.parseInt(s.trim()); } catch(Exception e){ return 0; } }
@@ -483,6 +533,16 @@ public class FarmStoreManager extends JFrame {
                     new Object[]{"Cash","Card"}, "Cash");
             if (method==0) sale.paidCash = sale.total; else sale.paidCard = sale.total;
 
+            dailyDates.add(LocalDateTime.now().toString());
+            dailyReceipts.add(sale.id);
+            if (qty==1){
+                dailyItems.add("1 " + it.name);
+            }
+            else{
+                dailyItems.add(Integer.toString(qty) + " " + it.name + "(s)");
+            }
+            dailyPrices.add(money(sale.total));
+
             // commit: decrement qty, save inventory & sale
             List<InventoryItem> inv = InventoryRepo.all();
             for (InventoryItem x : inv) if (x.id.equals(it.id)) x.qtyOnHand -= qty;
@@ -581,6 +641,14 @@ public class FarmStoreManager extends JFrame {
             if (svc==null){ JOptionPane.showMessageDialog(this,"Service missing"); return; }
             double pay = d(JOptionPane.showInputDialog(this,"Collect payment (base "+money(svc.basePrice)+"):", Double.toString(svc.basePrice)));
             ap.status="DONE"; ap.paidAmount=pay;
+
+            Sale sale = new Sale();
+
+            dailyDates.add(LocalDateTime.now().toString());
+            dailyReceipts.add(sale.id);
+            dailyItems.add(svc.name + " Service");
+            dailyPrices.add(money(pay));
+
             AppointmentRepo.saveAll(all);
             JOptionPane.showMessageDialog(this,"Marked DONE. Paid "+money(pay));
             reload();
@@ -668,6 +736,11 @@ public class FarmStoreManager extends JFrame {
 
             List<Sale> sales = SaleRepo.all(); sales.add(sale); SaleRepo.saveAll(sales);
 
+            dailyDates.add(LocalDateTime.now().toString());
+            dailyReceipts.add(sale.id);
+            dailyItems.add(a.breed + " " + a.species);
+            dailyPrices.add(money(sale.total));
+
             JOptionPane.showMessageDialog(this,"Sold. Receipt: "+sale.id+"  Total: "+money(sale.total));
             reload();
         }
@@ -675,24 +748,101 @@ public class FarmStoreManager extends JFrame {
 
     // ---- Reports ----
     class ReportsPanel extends JPanel {
-        DefaultTableModel model = new DefaultTableModel(new Object[]{"Metric","Value"},0){
+        DefaultTableModel header = new DefaultTableModel(new Object[]{"Daily","Lifetime"},0){
             public boolean isCellEditable(int r,int c){return false;}
         };
+        DefaultTableModel model = new DefaultTableModel(new Object[]{"Date of Purchase", "Receipt Number", "Items Purchased", "Price", "Date of Purchase", "Receipt Number", "Items Purchased", "Price"},0){
+            public boolean isCellEditable(int r,int c){return false;}
+        };
+
+        JTable headerTable = new JTable(header);
         JTable table = new JTable(model);
+        
         ReportsPanel(){
             setLayout(new BorderLayout());
-            add(new JScrollPane(table), BorderLayout.CENTER);
+            
+            // Create a panel with BoxLayout to stack tables vertically
+            JPanel tablesPanel = new JPanel();
+            tablesPanel.setLayout(new BoxLayout(tablesPanel, BoxLayout.Y_AXIS));
+            
+            // Add header table without scroll pane and set preferred size
+            headerTable.setPreferredScrollableViewportSize(
+                new Dimension(headerTable.getPreferredSize().width, 
+                            headerTable.getRowHeight() * (header.getRowCount() + 1))
+            );
+            tablesPanel.add(headerTable.getTableHeader());
+            tablesPanel.add(headerTable);
+            
+            // Add main table with scroll pane
+            tablesPanel.add(new JScrollPane(table));
+            
+            add(tablesPanel, BorderLayout.CENTER);
+            
+            // Create a panel to hold both buttons
+            JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            
             JButton refresh = new JButton("Refresh");
-            add(refresh, BorderLayout.NORTH);
             refresh.addActionListener(e -> reload());
+            buttonPanel.add(refresh);
+
+            JButton endDayButton = new JButton("End Day");
+            endDayButton.addActionListener(e -> saveRestock());
+            buttonPanel.add(endDayButton);
+            
+            // Add the button panel to NORTH
+            add(buttonPanel, BorderLayout.NORTH);
+
             reload();
         }
+        
         void reload(){
             model.setRowCount(0);
-            List<Sale> sales = SaleRepo.all();
-            double total = sales.stream().mapToDouble(s->s.total).sum();
-            model.addRow(new Object[]{"Lifetime Sales", money(total)});
-            model.addRow(new Object[]{"Receipts", sales.size()});
+           if (lifetimeDates.isEmpty()){
+                for (int i = 0; i < dailyDates.size(); i++) {
+                model.addRow(new Object[]{dailyDates.get(i), dailyReceipts.get(i), dailyItems.get(i), dailyPrices.get(i)});
+                }
+            }
+            else if(lifetimeDates.size() <= dailyDates.size()){
+                for (int i = 0; i < dailyDates.size(); i++) {
+                if (i < lifetimeDates.size()){
+                    model.addRow(new Object[]{dailyDates.get(i), dailyReceipts.get(i), dailyItems.get(i), dailyPrices.get(i), lifetimeDates.get(i), lifetimeReceipts.get(i), lifetimeItems.get(i), lifetimePrices.get(i)});
+                }
+                else{
+                    model.addRow(new Object[]{dailyDates.get(i), dailyReceipts.get(i), dailyItems.get(i), dailyPrices.get(i)});
+                }
+                }
+            }
+            else{
+                for (int i = 0; i < lifetimeDates.size(); i++) {
+                if (i < dailyDates.size()){
+                    model.addRow(new Object[]{dailyDates.get(i), dailyReceipts.get(i), dailyItems.get(i), dailyPrices.get(i), lifetimeDates.get(i), lifetimeReceipts.get(i), lifetimeItems.get(i), lifetimePrices.get(i)});
+                }
+                else{
+                    model.addRow(new Object[]{null, null, null, null, lifetimeDates.get(i), lifetimeReceipts.get(i), lifetimeItems.get(i), lifetimePrices.get(i)});
+                }
+                }
+            }
+
+        }
+
+        void saveRestock(){
+            for (int i = 0; i < dailyDates.size(); i++) {
+                lifetimeDates.add(dailyDates.get(i));
+                lifetimeReceipts.add(dailyReceipts.get(i));
+                lifetimeItems.add(dailyItems.get(i));
+                lifetimePrices.add(dailyPrices.get(i));
+            }
+
+            // Save lifetime data to CSV
+            LifetimeTransactionRepo.saveFromLists();
+
+            dailyDates.clear();
+            dailyReceipts.clear();
+            dailyItems.clear();
+            dailyPrices.clear();
+
+            JOptionPane.showMessageDialog(null, "Program is shutting down for the night.", "Shutting Down", JOptionPane.INFORMATION_MESSAGE);
+            System.exit(0);
         }
     }
 }
