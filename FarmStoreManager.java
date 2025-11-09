@@ -5,6 +5,8 @@ import java.io.*;
 import java.nio.file.*;
 import java.text.NumberFormat;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -66,6 +68,8 @@ public class FarmStoreManager extends JFrame {
 
     static String money(double d) { return CURRENCY.format(d); }
     static String id(String prefix) { return prefix + "-" + UUID.randomUUID().toString().substring(0,8); }
+
+    DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'H:mm:ss");
     
     static class CsvFiles {
         static Path p(String name){ return Path.of(DATA_DIR, name); }
@@ -533,7 +537,7 @@ public class FarmStoreManager extends JFrame {
                     new Object[]{"Cash","Card"}, "Cash");
             if (method==0) sale.paidCash = sale.total; else sale.paidCard = sale.total;
 
-            dailyDates.add(LocalDateTime.now().toString());
+            dailyDates.add(LocalDateTime.now().format(format));
             dailyReceipts.add(sale.id);
             if (qty==1){
                 dailyItems.add("1 " + it.name);
@@ -595,19 +599,36 @@ public class FarmStoreManager extends JFrame {
         }
 
         void onAddService(){
+            String id = JOptionPane.showInputDialog(this,"ID Number (e.g. S3):"); if (id==null) return;
+            for (Service service : ServiceRepo.all()){
+                if(id.equals(service.id)){
+                    JOptionPane.showMessageDialog(null, "This service number is already in use");
+                    return;
+                }
+            }
             String name = JOptionPane.showInputDialog(this,"Service name:"); if (name==null||name.isBlank()) return;
-            String desc = JOptionPane.showInputDialog(this,"Description:"); if (desc==null) desc="";
+            String desc = JOptionPane.showInputDialog(this,"Enter a short description of the service:"); if (desc==null) desc="";
             double price = d(JOptionPane.showInputDialog(this,"Base price:"));
             int mins = i(JOptionPane.showInputDialog(this,"Duration (minutes):"));
             List<Service> all = ServiceRepo.all();
-            all.add(new Service(null, name, desc, price, mins));
+            all.add(new Service(id, name, desc, price, mins));
             ServiceRepo.saveAll(all);
             JOptionPane.showMessageDialog(this,"Service added.");
             reload();
         }
 
         void onNewAppt(){
-            String custId = JOptionPane.showInputDialog(this,"Customer ID (or new like C3):"); if (custId==null) return;
+            
+            StringBuilder customerOutput = new StringBuilder();
+
+            customerOutput.append("Enter Customer ID (or enter a new ID to catalogue a new customer)\n\n");
+            customerOutput.append("Customer Catalogue:\n\n");
+
+            for (Customer person : CustomerRepo.all()){
+                customerOutput.append(person.fullName + " - " + person.id +"\n\n");
+            }
+
+            String custId = JOptionPane.showInputDialog(this,customerOutput); if (custId==null) return;
             List<Customer> custs = CustomerRepo.all();
             if (custs.stream().noneMatch(c->c.id.equals(custId))){
                 String nm = JOptionPane.showInputDialog(this,"Customer name:"); if (nm==null) return;
@@ -616,20 +637,45 @@ public class FarmStoreManager extends JFrame {
                 custs.add(new Customer(custId, nm, ph, em));
                 CustomerRepo.saveAll(custs);
             }
-            String svcId = JOptionPane.showInputDialog(this,"Service ID (e.g., S1):"); if (svcId==null) return;
+
+            StringBuilder serviceOutput = new StringBuilder();
+
+            serviceOutput.append("Enter Service ID\n\n");
+            serviceOutput.append("Service Catalogue:\n\n");
+
+            for (Service service : ServiceRepo.all()){
+                serviceOutput.append(service.name + " - " + service.id + "\n\n");
+            }
+
+            String svcId = JOptionPane.showInputDialog(this,serviceOutput); if (svcId==null) return;
             Optional<Service> svc = ServiceRepo.byId(svcId);
             if (svc.isEmpty()){ JOptionPane.showMessageDialog(this,"Service not found"); return; }
 
-            LocalDateTime when = LocalDateTime.now().plusDays(1);
-            Appointment ap = new Appointment(null, custId, null, svcId, when, when.plusMinutes(svc.get().durationMinutes), "BOOKED", 0);
+            String AppDate = JOptionPane.showInputDialog(null, "Enter the date of the appointment:\n(Format: Year-Month-Day)\n(e.g., 2025-11-30)");
+            if (AppDate == null){return;}
 
-            // simple overlap check
-            for (Appointment a : AppointmentRepo.all()){
-                boolean overlap = a.start.isBefore(ap.end) && ap.start.isBefore(a.end);
-                if (overlap){ JOptionPane.showMessageDialog(this,"Time overlaps existing appointment."); return; }
+            String AppTime = JOptionPane.showInputDialog(null, "Enter the time of the appointment in military time:\n(Format: Hour:Minute:Second)\n(e.g., 1:00:00PM = 13:00:00)");
+            if (AppTime == null){return;}
+            
+            String AppWhen = AppDate + "T" + AppTime;
+            
+            try{
+                LocalDateTime when = LocalDateTime.parse(AppWhen, format);
+
+                Appointment ap = new Appointment(null, custId, null, svcId, when, when.plusMinutes(svc.get().durationMinutes), "BOOKED", 0);
+
+                // simple overlap check
+                 for (Appointment a : AppointmentRepo.all()){
+                    boolean overlap = a.start.isBefore(ap.end) && ap.start.isBefore(a.end);
+                    if (overlap){ JOptionPane.showMessageDialog(this,"Time overlaps existing appointment."); return; }
+                }
+
+                List<Appointment> all = AppointmentRepo.all(); all.add(ap); AppointmentRepo.saveAll(all);
+            }
+            catch (DateTimeParseException e) {
+                JOptionPane.showMessageDialog(null, "Improper Date Format\nCanceling Appointment Scheduling");
             }
 
-            List<Appointment> all = AppointmentRepo.all(); all.add(ap); AppointmentRepo.saveAll(all);
             reload();
         }
 
@@ -644,7 +690,7 @@ public class FarmStoreManager extends JFrame {
 
             Sale sale = new Sale();
 
-            dailyDates.add(LocalDateTime.now().toString());
+            dailyDates.add(LocalDateTime.now().format(format));
             dailyReceipts.add(sale.id);
             dailyItems.add(svc.name + " Service");
             dailyPrices.add(money(pay));
@@ -736,7 +782,7 @@ public class FarmStoreManager extends JFrame {
 
             List<Sale> sales = SaleRepo.all(); sales.add(sale); SaleRepo.saveAll(sales);
 
-            dailyDates.add(LocalDateTime.now().toString());
+            dailyDates.add(LocalDateTime.now().format(format));
             dailyReceipts.add(sale.id);
             dailyItems.add(a.breed + " " + a.species);
             dailyPrices.add(money(sale.total));
@@ -751,7 +797,7 @@ public class FarmStoreManager extends JFrame {
         DefaultTableModel header = new DefaultTableModel(new Object[]{"Daily","Lifetime"},0){
             public boolean isCellEditable(int r,int c){return false;}
         };
-        DefaultTableModel model = new DefaultTableModel(new Object[]{"Date of Purchase", "Receipt Number", "Items Purchased", "Price", "Date of Purchase", "Receipt Number", "Items Purchased", "Price"},0){
+        DefaultTableModel model = new DefaultTableModel(new Object[]{"Date of Transaction", "Receipt Number", "Items Purchased", "Price", "Date of Transaction", "Receipt Number", "Items Purchased", "Price"},0){
             public boolean isCellEditable(int r,int c){return false;}
         };
 
