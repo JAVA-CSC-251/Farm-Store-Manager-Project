@@ -19,6 +19,12 @@ import java.util.*;
 public class FarmStoreManager extends JFrame {
 
     public static void main(String[] args) {
+        // === Global safety net: any uncaught exception shows a dialog and gets logged ===
+        // Haylee - Added global exception handler
+        Thread.setDefaultUncaughtExceptionHandler((t, e) ->
+            Err.alert(null, "running the application", e)
+        );
+
         SwingUtilities.invokeLater(() -> {
             FarmStoreManager app = new FarmStoreManager();
             app.setVisible(true);
@@ -56,6 +62,40 @@ public class FarmStoreManager extends JFrame {
 
     // Haylee - Yes/No helper
     private static String yn(boolean b) { return b ? "Yes" : "No"; }
+
+    // ===================== Error Handling Helpers =====================
+    // Haylee - Centralized error handling
+    static final class Err {
+        private static Path logPath() {
+            try { Files.createDirectories(Path.of(DATA_DIR)); } catch (IOException ignored) {}
+            return Path.of(DATA_DIR, "error.log");
+        }
+
+        static void log(Throwable t) {
+            try (PrintWriter pw = new PrintWriter(new FileWriter(logPath().toFile(), true))) {
+                pw.println("=== " + LocalDateTime.now() + " ===");
+                t.printStackTrace(pw);
+                pw.println();
+            } catch (IOException ioe) {
+                // last resort
+                ioe.printStackTrace();
+            }
+        }
+
+        static void alert(java.awt.Component parent, String doing, Throwable t) {
+            log(t);
+            JOptionPane.showMessageDialog(parent,
+                "Sorry, something went wrong while " + doing + ".\\nDetails were saved to data/error.log",
+                "Unexpected Error", JOptionPane.ERROR_MESSAGE);
+        }
+
+        static Runnable safe(java.awt.Component parent, String doing, Runnable run) {
+            return () -> {
+                try { run.run(); }
+                catch (Throwable t) { alert(parent, doing, t); }
+            };
+        }
+    }
 
     static class CsvFiles {
         static Path p(String name){ return Path.of(DATA_DIR, name); }
@@ -119,7 +159,10 @@ public class FarmStoreManager extends JFrame {
                 try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(path))) {
                     pw.println(header);
                     for (String[] r : seedRows) pw.println(String.join(",", safe(r)));
-                } catch (IOException e) { e.printStackTrace(); }
+                // Haylee - Added catch block
+                } catch (IOException e) {
+                    Err.log(e);
+                }
             }
         }
 
@@ -127,7 +170,10 @@ public class FarmStoreManager extends JFrame {
             if (!Files.exists(path) || isEmptyData(path)) {
                 try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(path))) {
                     pw.println(header);
-                } catch (IOException e) { e.printStackTrace(); }
+                // Haylee - Added catch block
+                } catch (IOException e) {
+                    Err.log(e);
+                }
             }
         }
 
@@ -135,7 +181,9 @@ public class FarmStoreManager extends JFrame {
             try {
                 long lines = Files.lines(path).count();
                 return lines <= 1; // header only or brand new
+            // Haylee - Added catch block
             } catch (IOException e) {
+                Err.log(e);
                 return true;
             }
         }
@@ -150,7 +198,10 @@ public class FarmStoreManager extends JFrame {
                     if (line.isBlank()) continue;
                     rows.add(splitCsv(line));
                 }
-            } catch (IOException e) { e.printStackTrace(); }
+            // Haylee - Added catch block
+            } catch (IOException e) {
+                Err.log(e);
+            }
             return rows;
         }
 
@@ -158,7 +209,10 @@ public class FarmStoreManager extends JFrame {
             try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(path))) {
                 pw.println(header);
                 for (String[] r : rows) pw.println(String.join(",", safe(r)));
-            } catch (IOException e) { e.printStackTrace(); }
+            // Haylee - Added catch block
+            } catch (IOException e) {
+                Err.log(e);
+            }
         }
 
         // CSV helpers: simple split that supports quoted fields (basic)
@@ -509,10 +563,11 @@ public class FarmStoreManager extends JFrame {
             actions.add(add); actions.add(edit); actions.add(del); actions.add(sell);
             add(actions, BorderLayout.NORTH);
 
-            add.addActionListener(e -> onAdd());
-            edit.addActionListener(e -> onEdit());
-            del.addActionListener(e -> onDelete());
-            sell.addActionListener(e -> onSell());
+            // Haylee - Wrapped action listeners with error handling
+            add.addActionListener(e -> Err.safe(this,"adding an item", this::onAdd).run());
+            edit.addActionListener(e -> Err.safe(this,"editing an item", this::onEdit).run());
+            del.addActionListener(e -> Err.safe(this,"deleting an item", this::onDelete).run());
+            sell.addActionListener(e -> Err.safe(this,"processing a sale", this::onSell).run());
 
             reload();
         }
@@ -583,7 +638,7 @@ public class FarmStoreManager extends JFrame {
             computeTotals(sale);
 
             int method = JOptionPane.showOptionDialog(this,
-                    "Total: "+money(sale.total)+"\nChoose payment method",
+                    "Total: "+money(sale.total)+"\\nChoose payment method",
                     "Payment", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null,
                     new Object[]{"Cash","Card"}, "Cash");
             if (method==0) sale.paidCash = sale.total; else sale.paidCard = sale.total;
@@ -597,7 +652,7 @@ public class FarmStoreManager extends JFrame {
             sales.add(sale);
             SaleRepo.saveAll(sales);
 
-            JOptionPane.showMessageDialog(this,"Sale complete.\nReceipt: "+sale.id);
+            JOptionPane.showMessageDialog(this,"Sale complete.\\nReceipt: "+sale.id);
             reload();
         }
     }
@@ -620,9 +675,10 @@ public class FarmStoreManager extends JFrame {
             actions.add(newAppt); actions.add(donePay); actions.add(addSvc);
             add(actions, BorderLayout.NORTH);
 
-            newAppt.addActionListener(e -> onNewAppt());
-            donePay.addActionListener(e -> onDonePay());
-            addSvc.addActionListener(e -> onAddService());
+            // Haylee - Wrapped action listeners with error handling
+            newAppt.addActionListener(e -> Err.safe(this,"creating an appointment", this::onNewAppt).run());
+            donePay.addActionListener(e -> Err.safe(this,"marking done & collecting payment", this::onDonePay).run());
+            addSvc.addActionListener(e -> Err.safe(this,"adding a service", this::onAddService).run());
 
             reload();
         }
@@ -710,9 +766,10 @@ public class FarmStoreManager extends JFrame {
             actions.add(add); actions.add(edit); actions.add(sell);
             add(actions, BorderLayout.NORTH);
 
-            add.addActionListener(e -> onAdd());
-            edit.addActionListener(e -> onEdit());
-            sell.addActionListener(e -> onSell());
+            // Haylee - Wrapped action listeners with error handling
+            add.addActionListener(e -> Err.safe(this,"adding an animal", this::onAdd).run());
+            edit.addActionListener(e -> Err.safe(this,"editing an animal", this::onEdit).run());
+            sell.addActionListener(e -> Err.safe(this,"selling an animal", this::onSell).run());
 
             reload();
         }
@@ -799,11 +856,12 @@ public class FarmStoreManager extends JFrame {
             actions.add(add); actions.add(edit); actions.add(toggle); actions.add(clockIn); actions.add(clockOut);
             add(actions, BorderLayout.NORTH);
 
-            add.addActionListener(e -> onAdd());
-            edit.addActionListener(e -> onEdit());
-            toggle.addActionListener(e -> onToggleActive());
-            clockIn.addActionListener(e -> onClockIn());
-            clockOut.addActionListener(e -> onClockOut());
+            // Haylee - Wrapped action listeners with error handling
+            add.addActionListener(e -> Err.safe(this,"adding an employee", this::onAdd).run());
+            edit.addActionListener(e -> Err.safe(this,"editing an employee", this::onEdit).run());
+            toggle.addActionListener(e -> Err.safe(this,"toggling employee active status", this::onToggleActive).run());
+            clockIn.addActionListener(e -> Err.safe(this,"clocking in", this::onClockIn).run());
+            clockOut.addActionListener(e -> Err.safe(this,"clocking out", this::onClockOut).run());
 
             reload();
         }
@@ -920,7 +978,8 @@ public class FarmStoreManager extends JFrame {
             add(new JScrollPane(table), BorderLayout.CENTER);
             JButton refresh = new JButton("Refresh");
             add(refresh, BorderLayout.NORTH);
-            refresh.addActionListener(e -> reload());
+            // Haylee - Wrapped action listener with error handling
+            refresh.addActionListener(e -> Err.safe(this,"refreshing reports", this::reload).run());
             reload();
         }
         void reload(){
