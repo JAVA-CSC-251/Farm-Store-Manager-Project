@@ -1,0 +1,3 @@
+id,sku,name,category,unitPrice,qtyOnHand,taxable
+I1,DOGFOOD-20,Dog Kibble 20lb,Food,29.99,12,true
+I-adff741d,DUCK-FEED-20,Duck Feed 20lb,Food,24.99,10,true

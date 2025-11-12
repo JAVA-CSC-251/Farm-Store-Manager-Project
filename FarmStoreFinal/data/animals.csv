@@ -1,0 +1,3 @@
+id,species,breed,sex,ageMonths,microchipId,price,onHold,supplierName,notes,sold
+A2,Rabbit,Mini Rex,M,4,,45.0,false,Local Breeder,Calm,false
+A-980cd33a,Goat,Nigerian Dwarf,F,12,,175.0,true,Green Pastures Farm,Healthy and friendly,true
